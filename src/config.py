@@ -64,6 +64,23 @@ QP_SOLVER = "CLARABEL"
 EXP1_UNDERLYING = "I:SPX"  # Massive index-options root ticker used for the fit
 EXP1_N_KNOTS = 20          # paper's "SPX with 20 knots" reference configuration
 
+# Paper's reference SPX calibration uses 46 expiries (section "Numerical
+# Results"); the number of expiries actually downloaded is reduced to keep
+# the live option-chain pull (one HTTP round trip per strike per expiry)
+# within the time available for this replication (see RESULTS.md).
+EXP1_MAX_EXPIRIES_PAPER = 46
+EXP1_MAX_EXPIRIES_RUN = 15
+
+# Strikes requested per expiry when building the quotes table (not to be
+# confused with N_DISCRETIZATION_STRIKES, the number of points used to
+# discretize the arbitrage constraints); not a value given by the paper.
+EXP1_STRIKES_PER_EXPIRY = 20
+
+# Valuation (as-of) date used to fetch the live option chain. The paper's
+# own snapshot date is not given; this is fixed to the date of this run so
+# that every experiment uses one consistent surface.
+VALUATION_DATE = "2026-11-12"
+
 # ---------------------------------------------------------------------------
 # exp_2: calibration-time benchmarking
 # ---------------------------------------------------------------------------

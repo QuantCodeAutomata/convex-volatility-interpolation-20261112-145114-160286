@@ -1,6 +1,8 @@
 # Convex Volatility Interpolation (CVI)
 
-Replication of selected results from *Convex Volatility Interpolation*.
+Replication of selected results from *Convex Volatility Interpolation*,
+Fabrice Deschâtres (Volptima), author version of the article published in
+*Cutting Edge, Risk*, February 2026.
 
 This repository implements the CVI arbitrage-free implied-variance surface
 parameterization and its two-step convex quadratic-program (QP) calibration,
@@ -65,5 +67,5 @@ every deviation from the paper's data.
 
 ## Reference
 
-Convex Volatility Interpolation (see `results/RESULTS.md` for the full
-citation as given in the paper).
+Fabrice Deschâtres, "Convex Volatility Interpolation", author version of the
+article published in *Cutting Edge, Risk*, February 2026.

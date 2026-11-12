@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 import cvxpy as cp
 import numpy as np
 import pandas as pd
+import scipy.sparse as sp
 
 from src.config import (
     LEE_MARGIN,
@@ -174,12 +175,23 @@ def calibrate_surface(
         Vm, _, _ = rows_mid[j]
         z0, zn = bases[j].knots[0], bases[j].knots[-1]
         in_range_mid = (e.z(e.k_mid) >= z0) & (e.z(e.k_mid) <= zn) if len(e.k_mid) else np.array([], dtype=bool)
+        # Each quadratic penalty is built as an explicit sparse quad_form
+        # P = V^T diag(w) V (paper's implementation notes: "Build sparse
+        # matrices P (objective) and A (constraints) using scipy.sparse").
+        # Passing cp.square(affine expr) directly to CVXPY would instead let
+        # its QP canonicalization introduce one epigraph slack variable per
+        # residual, which keeps P's size fixed at the quote count and moves
+        # the knot-dependent coefficients into the constraint matrix A; the
+        # explicit quad_form keeps the knot-dependence in P, as the paper's
+        # P/A non-zero counts (exp_2) assume.
         if Vm.shape[0] and in_range_mid.any():
             Vm_in = Vm[in_range_mid]
             v_mid_in = e.v_mid[in_range_mid]
             w = 1.0 / (e.v_ask_mid[in_range_mid] - e.v_bid_mid[in_range_mid]) ** 2
             n_mid = max(int(in_range_mid.sum()), 1)
-            ls_terms.append(cp.sum(cp.multiply(w, cp.square(Vm_in @ x_vars[j] - v_mid_in))) / n_mid)
+            P_ls = sp.csc_matrix((Vm_in.T * w) @ Vm_in / n_mid)
+            q_ls = -2.0 * (Vm_in.T * w) @ v_mid_in / n_mid
+            ls_terms.append(cp.quad_form(x_vars[j], P_ls, assume_PSD=True) + q_ls @ x_vars[j])
             q_j = float(np.sum(w))
         else:
             q_j = 0.0
@@ -191,7 +203,8 @@ def calibrate_surface(
             t = cp.Variable(Va.shape[0], nonneg=True)
             above_ask_slacks.append((t, Va, e.v_ask_only))
             n_ask = max(Va.shape[0], 1)
-            above_ask_terms.append(cp.sum(cp.multiply(w_ask, cp.square(t))) / n_ask)
+            P_ask = sp.diags(w_ask / n_ask)
+            above_ask_terms.append(cp.quad_form(t, P_ask, assume_PSD=True))
 
         Vb, _, _ = rows_bid[j]
         z_bid_all = e.z(e.k_bid_only)
@@ -203,7 +216,8 @@ def calibrate_surface(
             t = cp.Variable(Vb_in.shape[0], nonneg=True)
             below_bid_slacks.append((t, Vb_in, v_bid_in))
             n_bid = max(Vb_in.shape[0], 1)
-            below_bid_terms.append(cp.sum(cp.multiply(w_bid, cp.square(t))) / n_bid)
+            P_bid = sp.diags(w_bid / n_bid)
+            below_bid_terms.append(cp.quad_form(t, P_bid, assume_PSD=True))
 
         # Strike-regularization: total variation of convexities c_0..c_{n-1}
         # (c_0 = c_{n-1} = 0 structurally; interior c_i = x_vars[j][2 + i - 1]).
@@ -293,7 +307,13 @@ def _solve_two_step(expiries, bases, x_vars, objective, base_constraints, rows_g
                 k_grid = z_grid * v_star ** 0.5 * np.sqrt(T)
                 v_ref = Vg @ x_prev[j]
                 s_ref = (Vpg @ x_prev[j]) / v_star
-                valid = v_ref > 1e-10
+                # Points where the reference variance is numerically close to
+                # zero (deep in the linear-extrapolation tail) make the
+                # linearization coefficients below blow up (they divide by
+                # v_ref); such points are excluded, matching the paper's
+                # requirement that Lee's bound keeps v(z) bounded away from 0
+                # inside the fitted domain.
+                valid = v_ref > 1e-4 * v_star
                 for idx in np.where(valid)[0]:
                     k, vr, sr = k_grid[idx], v_ref[idx], s_ref[idx]
                     d1r = (-k + vr * T / 2) / np.sqrt(vr * T)
